@@ -1,5 +1,4 @@
 #include <SDL.h>
-#include "86box/plat.h"
 #include "cocoa_mouse.hpp"
 #import <AppKit/AppKit.h>
 extern "C"
@@ -8,7 +7,7 @@ extern "C"
 #include <86box/keyboard.h>
 #include <86box/mouse.h>
 #include <86box/config.h>
-//#include <86box/plat.h>
+#include <86box/plat.h>
 #include <86box/plat_dynld.h>
 #include <86box/device.h>
 #include <86box/timer.h>

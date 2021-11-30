@@ -81,6 +81,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(this, &MainWindow::updateStatusBarActivity, ui->machineStatus, &MachineStatus::setActivity);
     connect(this, &MainWindow::updateStatusBarEmpty, ui->machineStatus, &MachineStatus::setEmpty);
 
+    this->statusBar()->addWidget(ui->machineStatus);
     ui->actionKeyboard_requires_capture->setChecked(kbd_req_capture);
     ui->actionRight_CTRL_is_left_ALT->setChecked(rctrl_is_lalt);
 #if 0

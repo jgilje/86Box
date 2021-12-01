@@ -3,11 +3,13 @@
 
 #include <QMainWindow>
 #include <QLabel>
-#include <qevent.h>
+#include <QEvent>
 
 namespace Ui {
 class MainWindow;
 }
+
+class MachineStatus;
 
 class MainWindow : public QMainWindow
 {
@@ -47,17 +49,8 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
 private:
-    struct DeltaPos {
-        int x = 0;
-        int y = 0;
-        int z = 0;
-    };
     Ui::MainWindow *ui;
-    DeltaPos mouseDelta;
-    QWindow* sdl_wrapped_window;
-    QWidget* sdl_wrapped_widget;
-    QWidget* hw_widget;
-    QTimer* sdl_timer;
+    std::unique_ptr<MachineStatus> status;
 };
 
 #endif // QT_MAINWINDOW_HPP

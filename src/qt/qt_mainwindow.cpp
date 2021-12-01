@@ -1,7 +1,5 @@
 #include "qt_mainwindow.hpp"
-#include "ui_qt_machinestatus.h"
 #include "ui_qt_mainwindow.h"
-#include <qevent.h>
 
 extern "C" {
 #include <86box/86box.h>
@@ -24,6 +22,7 @@ extern "C" {
 
 #include "qt_settings.hpp"
 #include "qt_gleswidget.hpp"
+#include "qt_machinestatus.hpp"
 
 #ifdef __unix__
 #include <X11/Xlib.h>
@@ -39,62 +38,47 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     Q_INIT_RESOURCE(qt_resources);
+    status = std::make_unique<MachineStatus>(this);
 
     ui->setupUi(this);
     video_setblit(qt_blit);
+    ui->glesWidget->setMouseTracking(true);
 
-    this->hw_widget = new GLESWidget(this);
-    this->hw_widget->setMouseTracking(true);
-    this->hw_widget->setGeometry(QRect(this->menuWidget() ? QPoint(0,this->menuWidget()->size().height()) : QPoint(0,0), QSize(640, 480)));
-    this->setCentralWidget(this->hw_widget);
-    connect(this, &MainWindow::blitToWidget, (GLESWidget*)this->hw_widget, &GLESWidget::qt_real_blit);
+    connect(this, &MainWindow::blitToWidget, ui->glesWidget, &GLESWidget::qt_real_blit);
 
     connect(this, &MainWindow::showMessageForNonQtThread, this, &MainWindow::showMessage_, Qt::BlockingQueuedConnection);
 
-    connect(this, &MainWindow::pollMouse, this, [] {
-        qt_mouse_poll();
-    });
+    connect(this, &MainWindow::pollMouse, ui->glesWidget, &GLESWidget::qt_mouse_poll);
 
     connect(this, &MainWindow::setMouseCapture, this, [this](bool state) {
         mouse_capture = state ? 1 : 0;
         qt_mouse_capture(mouse_capture);
-        if (mouse_capture) hw_widget->grabMouse();
-        else hw_widget->releaseMouse();
-    });
-
-    connect(this, &MainWindow::setFullscreen, this, [this](bool state) {
-        video_fullscreen = state ? 1 : 0;
-        //sdl_set_fs(video_fullscreen);
-        this->setFullscreen(state);
+        if (mouse_capture) ui->glesWidget->grabMouse();
+        else ui->glesWidget->releaseMouse();
     });
 
     connect(this, &MainWindow::resizeContents, this, [this](int w, int h) {
-        this->hw_widget->resize(w, h);
-        this->resize(w, h + menuBar()->height() + statusBar()->height());
+        ui->glesWidget->resize(w, h);
+        resize(w, h + menuBar()->height() + statusBar()->height());
     });
 
     connect(ui->menubar, &QMenuBar::triggered, this, [] {
         config_save();
     });
 
-    connect(this, &MainWindow::updateStatusBarPanes, ui->machineStatus, &MachineStatus::refresh);
-    connect(this, &MainWindow::updateStatusBarActivity, ui->machineStatus, &MachineStatus::setActivity);
-    connect(this, &MainWindow::updateStatusBarEmpty, ui->machineStatus, &MachineStatus::setEmpty);
+    connect(this, &MainWindow::updateStatusBarPanes, this, [this] {
+        status->refresh(ui->statusbar);
+    });
+    connect(this, &MainWindow::updateStatusBarActivity, this, [this](int i, bool b) {
+        status->setActivity(i, b);
+    });
+    connect(this, &MainWindow::updateStatusBarEmpty, this, [this](int i, bool b) {
+        status->setEmpty(i, b);
+    });
 
     this->statusBar()->addWidget(ui->machineStatus);
     ui->actionKeyboard_requires_capture->setChecked(kbd_req_capture);
     ui->actionRight_CTRL_is_left_ALT->setChecked(rctrl_is_lalt);
-#if 0
-    sdl_inits();
-    sdl_timer = new QTimer(this);
-    connect(sdl_timer, &QTimer::timeout, this, [] {
-        auto status = sdl_main();
-        if (status == SdlMainQuit) {
-            QApplication::quit();
-        }
-    });
-    sdl_timer->start(5);
-#endif
 }
 
 MainWindow::~MainWindow() {
@@ -644,7 +628,13 @@ uint16_t x11_keycode_to_keysym(uint32_t keycode)
 }
 
 void MainWindow::on_actionFullscreen_triggered() {
-    setFullscreen(true);
+    if (video_fullscreen > 0) {
+        showNormal();
+        video_fullscreen = 0;
+    } else {
+        showFullScreen();
+        video_fullscreen = 1;
+    }
 }
 
 void MainWindow::showMessage(const QString& header, const QString& message) {
@@ -667,6 +657,14 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
 #else
     keyboard_input(1, x11_keycode_to_keysym(event->nativeScanCode()));
 #endif
+
+    if (keyboard_isfsexit()) {
+        ui->actionFullscreen->trigger();
+    }
+
+    if (keyboard_ismsexit()) {
+        plat_mouse_capture(0);
+    }
 }
 
 void MainWindow::keyReleaseEvent(QKeyEvent* event)

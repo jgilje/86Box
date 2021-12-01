@@ -1,3 +1,5 @@
+#pragma once
+
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
 #include <QPainter>
@@ -16,7 +18,7 @@ public:
     void initializeGL() override;
     void paintGL() override;
     GLESWidget(QWidget* parent = nullptr)
-    : QOpenGLWidget(parent)
+    : QOpenGLWidget(parent), QOpenGLFunctions()
     {
         setMinimumSize(16, 16);
     }
@@ -38,4 +40,13 @@ public:
     }
 public slots:
 	void qt_real_blit(int x, int y, int w, int h);
+    void qt_mouse_poll();
+
+private:
+    struct mouseinputdata {
+        int deltax, deltay, deltaz;
+        int mousebuttons;
+    };
+    mouseinputdata mousedata;
+
 };

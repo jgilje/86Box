@@ -19,7 +19,8 @@ class GLESWidget : public QOpenGLWidget, protected QOpenGLFunctions
 
 private:
     QImage m_image{QSize(2048 + 64, 2048 + 64), QImage::Format_RGB32};
-    int x, y, w, h, sx, sy, sw, sh;
+    uint32_t m_bltbuf[(2048 + 64) * (2048 + 64)];
+    std::atomic<int> x, y, w, h, sx, sy, sw, sh;
     bool wayland = false;
 public:
     void resizeGL(int w, int h) override;
@@ -66,5 +67,4 @@ private:
         int mousebuttons;
     };
     mouseinputdata mousedata;
-    std::atomic<bool> firstupdate{false};
 };

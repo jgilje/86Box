@@ -66,9 +66,10 @@ void GLESWidget::initializeGL()
 void GLESWidget::paintGL()
 {
     QPainter painter(this);
+    memcpy(this->m_image.bits(), m_bltbuf, (2048 + 64) * (2048 + 64) * 4);
     painter.drawImage(QRect(0, 0, width(), height()), m_image.convertToFormat(QImage::Format_RGBX8888), QRect(sx, sy, sw, sh));
     painter.end();
-    firstupdate = true;
+    update();
 }
 
 void GLESWidget::reqUpdate_()
@@ -136,7 +137,7 @@ void GLESWidget::mouseMoveEvent(QMouseEvent *event)
 
 void GLESWidget::qt_real_blit(int x, int y, int w, int h)
 {
-    if ((w <= 0) || (h <= 0) || (w > 2048) || (h > 2048) || (buffer32 == NULL) || !firstupdate)
+    if ((w <= 0) || (h <= 0) || (w > 2048) || (h > 2048) || (buffer32 == NULL))
     {
         video_blit_complete();
         return;
@@ -145,7 +146,7 @@ void GLESWidget::qt_real_blit(int x, int y, int w, int h)
     sy = y;
     sw = this->w = w;
     sh = this->h = h;
-    static auto imagebits = m_image.bits();
+    static auto imagebits = (unsigned char*)m_bltbuf;
     for (int y1 = y; y1 < (y + h - 1); y1++)
     {
         auto scanline = imagebits + (y1 * (2048 + 64) * 4);
@@ -156,6 +157,4 @@ void GLESWidget::qt_real_blit(int x, int y, int w, int h)
         video_screenshot((uint32_t *)imagebits, 0, 0, 2048 + 64);
     }
     video_blit_complete();
-    firstupdate = false;
-    this->reqUpdate();
 }

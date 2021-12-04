@@ -9,6 +9,7 @@
 
 extern "C"
 {
+#include <86box/86box.h>
 #include <86box/mouse.h>
 #include <86box/plat.h>
 #include <86box/video.h>

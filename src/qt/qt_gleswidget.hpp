@@ -31,7 +31,7 @@ public:
     : QOpenGLWidget(parent), QOpenGLFunctions()
     {
         setMinimumSize(16, 16);
-        setTextureFormat(GL_RGB);
+        if (!QApplication::platformName().contains("eglfs")) setTextureFormat(GL_RGB);
 #ifdef WAYLAND
         if (QApplication::platformName().contains("wayland")) {
             wayland = true;

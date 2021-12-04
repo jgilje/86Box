@@ -68,6 +68,7 @@ void GLESWidget::paintGL()
 {
     std::scoped_lock lock(image_mx);
     QPainter painter(this);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, video_filter_method);
     painter.drawImage(QRect(0, 0, width(), height()), m_image, QRect(sx, sy, sw, sh));
 }
 

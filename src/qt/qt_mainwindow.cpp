@@ -12,8 +12,10 @@ extern "C" {
 #include <86box/video.h>
 #include <86box/vid_ega.h>
 #include <86box/version.h>
+#include "qt_sdl.h"
 };
 
+#include <QDebug>
 #include <QGuiApplication>
 #include <QWindow>
 #include <QTimer>
@@ -34,15 +36,8 @@ extern "C" {
 #include "qt_machinestatus.hpp"
 #include "qt_mediamenu.hpp"
 
-#ifdef __unix__
-#include <X11/Xlib.h>
-#include <X11/keysym.h>
-#undef KeyPress
-#undef KeyRelease
-#endif
-
-extern void qt_mouse_capture(int);
-extern "C" void qt_blit(int x, int y, int w, int h);
+//extern void qt_mouse_capture(int);
+//extern "C" void qt_blit(int x, int y, int w, int h);
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -54,7 +49,6 @@ MainWindow::MainWindow(QWidget *parent) :
     status = std::make_unique<MachineStatus>(this);
 
     ui->setupUi(this);
-    ui->stackedWidget->setMouseTracking(true);
     statusBar()->setVisible(!hide_status_bar);
 
     this->setWindowIcon(QIcon(":/settings/win/icons/86Box-yellow.ico"));
@@ -78,39 +72,23 @@ MainWindow::MainWindow(QWidget *parent) :
 
     emit updateMenuResizeOptions();
 
-    connect(this, &MainWindow::pollMouse, ui->stackedWidget, &RendererStack::mousePoll);
-
-    connect(this, &MainWindow::setMouseCapture, this, [this](bool state) {
-        mouse_capture = state ? 1 : 0;
-        qt_mouse_capture(mouse_capture);
-        if (mouse_capture) {
-            ui->stackedWidget->grabMouse();
-#ifdef WAYLAND
-            if (QGuiApplication::platformName().contains("wayland")) {
-                wl_mouse_capture(this->windowHandle());
-            }
-#endif
-        } else {
-            ui->stackedWidget->releaseMouse();
-#ifdef WAYLAND
-            if (QGuiApplication::platformName().contains("wayland")) {
-                wl_mouse_uncapture();
-            }
-#endif
-        }
+    connect(this, &MainWindow::pollMouse, this, [] {
+        sdl_mouse_poll();
     });
 
-    connect(this, &MainWindow::resizeContents, this, [this](int w, int h) {
-        if (!QApplication::platformName().contains("eglfs") && vid_resize == 0) {
-            w = w / (!dpi_scale ? devicePixelRatio() : 1);
-            int modifiedHeight = (h / (!dpi_scale ? devicePixelRatio() : 1)) + menuBar()->height() + (statusBar()->height() * !hide_status_bar);
-            ui->stackedWidget->resize(w, h);
-            if (vid_resize == 0) {
-                setFixedSize(w, modifiedHeight);
-            } else {
-                resize(w, modifiedHeight);
-            }
-        }
+    connect(this, &MainWindow::setMouseCapture, this, [](bool state) {
+        mouse_capture = state ? 1 : 0;
+        sdl_mouse_capture(mouse_capture);
+    });
+
+    connect(this, &MainWindow::resizeContents, this, [](int w, int h) {
+        sdl_resize(w, h);
+    });
+    connect(this, &MainWindow::setFullscreen, this, [](bool state) {
+        startblit();
+        video_fullscreen = state ? 1 : 0;
+        sdl_set_fs(video_fullscreen);
+        endblit();
     });
 
     connect(ui->menubar, &QMenuBar::triggered, this, [] {
@@ -136,16 +114,13 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->actionUpdate_status_bar_icons->setChecked(update_icons);
     switch (vid_api) {
     case 0:
-        ui->stackedWidget->switchRenderer(RendererStack::Renderer::Software);
-        ui->actionSoftware_Renderer->setChecked(true);
+        sdl_inits();
         break;
     case 1:
-        ui->stackedWidget->switchRenderer(RendererStack::Renderer::OpenGL);
-        ui->actionHardware_Renderer_OpenGL->setChecked(true);
+        sdl_inith();
         break;
     case 2:
-        ui->stackedWidget->switchRenderer(RendererStack::Renderer::OpenGLES);
-        ui->actionHardware_Renderer_OpenGL_ES->setChecked(true);
+        sdl_initho();
         break;
     }
     switch (scale) {
@@ -222,14 +197,10 @@ MainWindow::MainWindow(QWidget *parent) :
         ui->actionChange_contrast_for_monochrome_display->setChecked(true);
     }
 
-    setFocusPolicy(Qt::StrongFocus);
-    ui->stackedWidget->setFocusPolicy(Qt::NoFocus);
-    ui->centralwidget->setFocusPolicy(Qt::NoFocus);
-    menuBar()->setFocusPolicy(Qt::NoFocus);
-    menuWidget()->setFocusPolicy(Qt::NoFocus);
-    statusBar()->setFocusPolicy(Qt::NoFocus);
-
-    video_setblit(qt_blit);
+    sdl_thread = std::thread([this] {
+        sdl_main();
+        close();
+    });
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
@@ -239,7 +210,6 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         QCheckBox *chkbox = new QCheckBox("Do not ask me again");
         questionbox.setCheckBox(chkbox);
         chkbox->setChecked(!confirm_exit);
-        bool confirm_exit_temp = false;
         QObject::connect(chkbox, &QCheckBox::stateChanged, [](int state) {
             confirm_exit = (state == Qt::CheckState::Unchecked);
         });
@@ -252,35 +222,38 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         config_save();
     }
     if (window_remember) {
-        window_w = ui->stackedWidget->width();
-        window_h = ui->stackedWidget->height();
-        if (!QApplication::platformName().contains("wayland")) {
-            window_x = this->geometry().x();
-            window_y = this->geometry().y();
-        }
+//        window_w = ui->stackedWidget->width();
+//        window_h = ui->stackedWidget->height();
+//        if (!QApplication::platformName().contains("wayland")) {
+//            window_x = this->geometry().x();
+//            window_y = this->geometry().y();
+//        }
     }
     event->accept();
 }
 
 MainWindow::~MainWindow() {
+    sdl_quit();
     delete ui;
+    sdl_thread.join();
+    sdl_close();
 }
 
-void MainWindow::showEvent(QShowEvent *event) {
-    if (window_remember && !QApplication::platformName().contains("wayland")) {
-        setGeometry(window_x, window_y, window_w, window_h);
-    }
-    if (vid_resize == 2) {
-        setFixedSize(fixed_size_x, fixed_size_y + this->menuBar()->height() + this->statusBar()->height());
-        scrnsz_x = fixed_size_x;
-        scrnsz_y = fixed_size_y;
-    }
-    else if (window_remember) {
-        emit resizeContents(window_w, window_h);
-        scrnsz_x = window_w;
-        scrnsz_y = window_h;
-    }
-}
+//void MainWindow::showEvent(QShowEvent *event) {
+//    if (window_remember && !QApplication::platformName().contains("wayland")) {
+//        setGeometry(window_x, window_y, window_w, window_h);
+//    }
+//    if (vid_resize == 2) {
+//        setFixedSize(fixed_size_x, fixed_size_y + this->menuBar()->height() + this->statusBar()->height());
+//        scrnsz_x = fixed_size_x;
+//        scrnsz_y = fixed_size_y;
+//    }
+//    else if (window_remember) {
+//        emit resizeContents(window_w, window_h);
+//        scrnsz_x = window_w;
+//        scrnsz_y = window_h;
+//    }
+//}
 
 void MainWindow::on_actionKeyboard_requires_capture_triggered() {
     kbd_req_capture ^= 1;
@@ -337,537 +310,14 @@ void MainWindow::on_actionSettings_triggered() {
     plat_pause(currentPause);
 }
 
-std::array<uint32_t, 256> x11_to_xt_base
-{
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0x01,
-    0x02,
-    0x03,
-    0x04,
-    0x05,
-    0x06,
-    0x07,
-    0x08,
-    0x09,
-    0x0A,
-    0x0B,
-    0x0C,
-    0x0D,
-    0x0E,
-    0x0F,
-    0x10,
-    0x11,
-    0x12,
-    0x13,
-    0x14,
-    0x15,
-    0x16,
-    0x17,
-    0x18,
-    0x19,
-    0x1A,
-    0x1B,
-    0x1C,
-    0x1D,
-    0x1E,
-    0x1F,
-    0x20,
-    0x21,
-    0x22,
-    0x23,
-    0x24,
-    0x25,
-    0x26,
-    0x27,
-    0x28,
-    0x29,
-    0x2A,
-    0x2B,
-    0x2C,
-    0x2D,
-    0x2E,
-    0x2F,
-    0x30,
-    0x31,
-    0x32,
-    0x33,
-    0x34,
-    0x35,
-    0x36,
-    0x37,
-    0x38,
-    0x39,
-    0x3A,
-    0x3B,
-    0x3C,
-    0x3D,
-    0x3E,
-    0x3F,
-    0x40,
-    0x41,
-    0x42,
-    0x43,
-    0x44,
-    0x45,
-    0x46,
-    0x47,
-    0x48,
-    0x49,
-    0x4A,
-    0x4B,
-    0x4C,
-    0x4D,
-    0x4E,
-    0x4F,
-    0x50,
-    0x51,
-    0x52,
-    0x53,
-    0x54,
-    0x55,
-    0x56,
-    0x57,
-    0x58,
-    0x147,
-    0x148,
-    0x149,
-    0,
-    0x14B,
-    0,
-    0x14D,
-    0x14F,
-    0x150,
-    0x151,
-    0x152,
-    0x153,
-    0x11C,
-    0x11D,
-    0, // Pause/Break key.
-    0x137,
-    0x135,
-    0x138,
-    0, // Ditto as above comment.
-    0x15B,
-    0x15C,
-    0x15D,
-};
-
-std::array<uint32_t, 256> x11_to_xt_2
-{
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0x01,
-    0x02,
-    0x03,
-    0x04,
-    0x05,
-    0x06,
-    0x07,
-    0x08,
-    0x09,
-    0x0A,
-    0x0B,
-    0x0C,
-    0x0D,
-    0x0E,
-    0x0F,
-    0x10,
-    0x11,
-    0x12,
-    0x13,
-    0x14,
-    0x15,
-    0x16,
-    0x17,
-    0x18,
-    0x19,
-    0x1A,
-    0x1B,
-    0x1C,
-    0x1D,
-    0x1E,
-    0x1F,
-    0x20,
-    0x21,
-    0x22,
-    0x23,
-    0x24,
-    0x25,
-    0x26,
-    0x27,
-    0x28,
-    0x29,
-    0x2A,
-    0x2B,
-    0x2C,
-    0x2D,
-    0x2E,
-    0x2F,
-    0x30,
-    0x31,
-    0x32,
-    0x33,
-    0x34,
-    0x35,
-    0x36,
-    0x37,
-    0x38,
-    0x39,
-    0x3A,
-    0x3B,
-    0x3C,
-    0x3D,
-    0x3E,
-    0x3F,
-    0x40,
-    0x41,
-    0x42,
-    0x43,
-    0x44,
-    0x45,
-    0x46,
-    0x47,
-    0x48,
-    0x49,
-    0x4A,
-    0x4B,
-    0x4C,
-    0x4D,
-    0x4E,
-    0x4F,
-    0x50,
-    0x51,
-    0x52,
-    0x53,
-    0x54,
-    0x55,
-    0x56,
-    0x57,
-    0x58,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0x11C,
-    0x11D,
-    0x135,
-    0x137,
-    0x138,
-    0,
-    0x147,
-    0x148,
-    0x149,
-    0x14B,
-    0x14D,
-    0x14F,
-    0x150,
-    0x151,
-    0x152,
-    0x153
-};
-
-std::array<uint32_t, 256> x11_to_xt_vnc
-{
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0x1D,
-    0x11D,
-    0x2A,
-    0x36,
-    0,
-    0,
-    0x38,
-    0x138,
-    0x39,
-    0x0B,
-    0x02,
-    0x03,
-    0x04,
-    0x05,
-    0x06,
-    0x07,
-    0x08,
-    0x09,
-    0x0A,
-    0x0C,
-    0x0D,
-    0x1A,
-    0x1B,
-    0x27,
-    0x28,
-    0x29,
-    0x33,
-    0x34,
-    0x35,
-    0x2B,
-    0x1E,
-    0x30,
-    0x2E,
-    0x20,
-    0x12,
-    0x21,
-    0x22,
-    0x23,
-    0x17,
-    0x24,
-    0x25,
-    0x26,
-    0x32,
-    0x31,
-    0x18,
-    0x19,
-    0x10,
-    0x13,
-    0x1F,
-    0x14,
-    0x16,
-    0x2F,
-    0x11,
-    0x2D,
-    0x15,
-    0x2C,
-    0x0E,
-    0x1C,
-    0x0F,
-    0x01,
-    0x153,
-    0x147,
-    0x14F,
-    0x149,
-    0x151,
-    0x148,
-    0x150,
-    0x14B,
-    0x14D,
-};
-
-std::array<uint32_t, 256> darwin_to_xt
-{
-    0x1E,
-    0x1F,
-    0x20,
-    0x21,
-    0x23,
-    0x22,
-    0x2C,
-    0x2D,
-    0x2E,
-    0x2F,
-    0x2B,
-    0x30,
-    0x10,
-    0x11,
-    0x12,
-    0x13,
-    0x15,
-    0x14,
-    0x02,
-    0x03,
-    0x04,
-    0x05,
-    0x07,
-    0x06,
-    0x0D,
-    0x0A,
-    0x08,
-    0x0C,
-    0x09,
-    0x0B,
-    0x1B,
-    0x18,
-    0x16,
-    0x1A,
-    0x17,
-    0x19,
-    0x1C,
-    0x26,
-    0x24,
-    0x28,
-    0x25,
-    0x27,
-    0x2B,
-    0x33,
-    0x35,
-    0x31,
-    0x32,
-    0x34,
-    0x0F,
-    0x39,
-    0x29,
-    0x0E,
-    0x11C,
-    0x01,
-    0x15C,
-    0x15B,
-    0x2A,
-    0x3A,
-    0x38,
-    0x1D,
-    0x36,
-    0x138,
-    0x11D,
-    0x15C,
-    0,
-    0x53,
-    0,
-    0x37,
-    0,
-    0x4E,
-    0,
-    0x45,
-    0x130,
-    0x12E,
-    0x120,
-    0x135,
-    0x11C,
-    0,
-    0x4A,
-    0,
-    0,
-    0,
-    0x52,
-    0x4F,
-    0x50,
-    0x51,
-    0x4B,
-    0x4C,
-    0x4D,
-    0x47,
-    0,
-    0x48,
-    0x49,
-    0,
-    0,
-    0,
-    0x3F,
-    0x40,
-    0x41,
-    0x3D,
-    0x42,
-    0x43,
-    0,
-    0x57,
-    0,
-    0x137,
-    0,
-    0x46,
-    0,
-    0x44,
-    0x15D,
-    0x58,
-    0,
-    0, // Pause/Break key.
-    0x152,
-    0x147,
-    0x149,
-    0x153,
-    0x3E,
-    0x14F,
-    0x3C,
-    0x151,
-    0x3B,
-    0x14B,
-    0x14D,
-    0x150,
-    0x148,
-    0,
-};
-
-static std::unordered_map<uint32_t, uint16_t> evdev_to_xt =
-    {
-        {96, 0x11C},
-        {97, 0x11D},
-        {98, 0x135},
-        {99, 0x71},
-        {100, 0x138},
-        {101, 0x1C},
-        {102, 0x147},
-        {103, 0x148},
-        {104, 0x149},
-        {105, 0x14B},
-        {106, 0x14D},
-        {107, 0x14F},
-        {108, 0x150},
-        {109, 0x151},
-        {110, 0x152},
-        {111, 0x153}
-};
-
-static std::array<uint32_t, 256>& selected_keycode = x11_to_xt_base;
-
-uint16_t x11_keycode_to_keysym(uint32_t keycode)
-{
-#ifdef __APPLE__
-    return darwin_to_xt[keycode];
-#else
-    static Display* x11display = nullptr;
-    if (QApplication::platformName().contains("wayland"))
-    {
-        selected_keycode = x11_to_xt_2;
-    }
-    else if (QApplication::platformName().contains("eglfs"))
-    {
-        keycode -= 8;
-        if (keycode <= 88) return keycode;
-        else return evdev_to_xt[keycode];
-    }
-    else if (!x11display)
-    {
-        x11display = XOpenDisplay(nullptr);
-        if (XKeysymToKeycode(x11display, XK_Home) == 110)
-        {
-            selected_keycode = x11_to_xt_2;
-        }
-        else if (XKeysymToKeycode(x11display, XK_Home) == 69)
-        {
-            selected_keycode = x11_to_xt_vnc;
-        }
-    }
-    return selected_keycode[keycode];
-#endif
-}
-
 void MainWindow::on_actionFullscreen_triggered() {
     if (video_fullscreen > 0) {
-        ui->menubar->show();
-        ui->statusbar->show();
-        showNormal();
         video_fullscreen = 0;
     } else {
-        ui->menubar->hide();
-        ui->statusbar->hide();
-        showFullScreen();
         video_fullscreen = 1;
     }
 
-    auto widget = ui->stackedWidget->currentWidget();
-    auto rc = dynamic_cast<RendererCommon*>(widget);
-    rc->onResize(widget->width(), widget->height());
+    sdl_set_fs(video_fullscreen);
 }
 
 void MainWindow::getTitle_(wchar_t *title)
@@ -882,24 +332,6 @@ void MainWindow::getTitle(wchar_t *title)
     } else {
         emit getTitleForNonQtThread(title);
     }
-}
-
-bool MainWindow::eventFilter(QObject* receiver, QEvent* event)
-{
-    if (this->keyboardGrabber() == this) {
-        if (event->type() == QEvent::KeyPress) {
-            event->accept();
-            this->keyPressEvent((QKeyEvent*)event);
-            return true;
-        }
-        if (event->type() == QEvent::KeyRelease) {
-            event->accept();
-            this->keyReleaseEvent((QKeyEvent*)event);
-            return true;
-        }
-    }
-
-    return QMainWindow::eventFilter(receiver, event);
 }
 
 void MainWindow::refreshMediaMenu() {
@@ -921,72 +353,33 @@ void MainWindow::showMessage_(const QString &header, const QString &message) {
     box.exec();
 }
 
-void MainWindow::keyPressEvent(QKeyEvent* event)
-{
-#ifdef __APPLE__
-    keyboard_input(1, x11_keycode_to_keysym(event->nativeVirtualKey()));
-#else
-    keyboard_input(1, x11_keycode_to_keysym(event->nativeScanCode()));
-#endif
-
-    if ((video_fullscreen > 0) && keyboard_isfsexit()) {
-        ui->actionFullscreen->trigger();
-    }
-
-    if (keyboard_ismsexit()) {
-        plat_mouse_capture(0);
-    }
-    event->accept();
-}
-
-void MainWindow::blitToWidget(int x, int y, int w, int h)
-{
-    ui->stackedWidget->blit(x, y, w, h);
-}
-
-void MainWindow::keyReleaseEvent(QKeyEvent* event)
-{
-#ifdef __APPLE__
-    keyboard_input(0, x11_keycode_to_keysym(event->nativeVirtualKey()));
-#else
-    keyboard_input(0, x11_keycode_to_keysym(event->nativeScanCode()));
-#endif
-}
-
-QSize MainWindow::getRenderWidgetSize()
-{
-    return ui->stackedWidget->size();
-}
+//QSize MainWindow::getRenderWidgetSize()
+//{
+//    return ui->stackedWidget->size();
+//}
 
 void MainWindow::on_actionSoftware_Renderer_triggered() {
-    ui->stackedWidget->switchRenderer(RendererStack::Renderer::Software);
-    ui->actionHardware_Renderer_OpenGL->setChecked(false);
-    ui->actionHardware_Renderer_OpenGL_ES->setChecked(false);
+    startblit();
+    sdl_close();
+    sdl_inits();
     vid_api = 0;
+    endblit();
 }
 
 void MainWindow::on_actionHardware_Renderer_OpenGL_triggered() {
-    ui->stackedWidget->switchRenderer(RendererStack::Renderer::OpenGL);
-    ui->actionSoftware_Renderer->setChecked(false);
-    ui->actionHardware_Renderer_OpenGL_ES->setChecked(false);
+    startblit();
+    sdl_close();
+    sdl_inith();
     vid_api = 1;
+    endblit();
 }
 
 void MainWindow::on_actionHardware_Renderer_OpenGL_ES_triggered() {
-    ui->stackedWidget->switchRenderer(RendererStack::Renderer::OpenGLES);
-    ui->actionSoftware_Renderer->setChecked(false);
-    ui->actionHardware_Renderer_OpenGL->setChecked(false);
+    startblit();
+    sdl_close();
+    sdl_initho();
     vid_api = 2;
-}
-
-void MainWindow::focusInEvent(QFocusEvent* event)
-{
-    this->grabKeyboard();
-}
-
-void MainWindow::focusOutEvent(QFocusEvent* event)
-{
-    this->releaseKeyboard();
+    endblit();
 }
 
 void MainWindow::on_actionResizable_window_triggered(bool checked) {
@@ -1066,9 +459,7 @@ static void update_fullscreen_scale_checkboxes(Ui::MainWindow* ui, QAction* sele
     ui->actionFullScreen_int->setChecked(ui->actionFullScreen_int == selected);
 
     if (video_fullscreen > 0) {
-        auto widget = ui->stackedWidget->currentWidget();
-        auto rc = dynamic_cast<RendererCommon*>(widget);
-        rc->onResize(widget->width(), widget->height());
+        sdl_resize(0, 0);
     }
 
     device_force_redraw();
@@ -1208,12 +599,12 @@ void MainWindow::on_actionForce_4_3_display_ratio_triggered() {
 void MainWindow::on_actionRemember_size_and_position_triggered()
 {
     window_remember ^= 1;
-    window_w = ui->stackedWidget->width();
-    window_h = ui->stackedWidget->height();
-    if (!QApplication::platformName().contains("wayland")) {
-        window_x = geometry().x();
-        window_y = geometry().y();
-    }
+//    window_w = ui->stackedWidget->width();
+//    window_h = ui->stackedWidget->height();
+//    if (!QApplication::platformName().contains("wayland")) {
+//        window_x = geometry().x();
+//        window_y = geometry().y();
+//    }
     ui->actionRemember_size_and_position->setChecked(window_remember);
 }
 

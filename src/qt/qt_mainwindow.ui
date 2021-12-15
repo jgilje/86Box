@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>724</width>
-    <height>427</height>
+    <width>455</width>
+    <height>216</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -36,9 +36,6 @@
     <property name="bottomMargin">
      <number>0</number>
     </property>
-    <item>
-     <widget class="RendererStack" name="stackedWidget" />
-    </item>
    </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -46,7 +43,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>724</width>
+     <width>455</width>
      <height>19</height>
     </rect>
    </property>
@@ -512,25 +509,6 @@
    </property>
   </action>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>HardwareRenderer</class>
-   <extends>QOpenGLWidget</extends>
-   <header>qt_hardwarerenderer.hpp</header>
-  </customwidget>
-  <customwidget>
-   <class>SoftwareRenderer</class>
-   <extends>QWidget</extends>
-   <header>qt_softwarerenderer.hpp</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>RendererStack</class>
-   <extends>QStackedWidget</extends>
-   <header>qt_rendererstack.hpp</header>
-   <container>1</container>
-  </customwidget>
- </customwidgets>
  <resources/>
  <connections/>
 </ui>

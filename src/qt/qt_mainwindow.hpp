@@ -2,11 +2,9 @@
 #define QT_MAINWINDOW_HPP
 
 #include <QMainWindow>
-#include <QLabel>
-#include <QEvent>
-#include <QFocusEvent>
 
 #include <memory>
+#include <thread>
 
 class MediaMenu;
 
@@ -26,8 +24,7 @@ public:
 
     void showMessage(const QString& header, const QString& message);
     void getTitle(wchar_t* title);
-    void blitToWidget(int x, int y, int w, int h);
-    QSize getRenderWidgetSize();
+//    QSize getRenderWidgetSize();
 signals:
     void paint(const QImage& image);
     void resizeContents(int w, int h);
@@ -99,18 +96,14 @@ private slots:
     void on_actionSound_gain_triggered();
 
 protected:
-    void keyPressEvent(QKeyEvent* event) override;
-    void keyReleaseEvent(QKeyEvent* event) override;
-    void focusInEvent(QFocusEvent* event) override;
-    void focusOutEvent(QFocusEvent* event) override;
-    bool eventFilter(QObject* receiver, QEvent* event) override;
-    void showEvent(QShowEvent* event) override;
+//    void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
 
 private:
     Ui::MainWindow *ui;
     std::unique_ptr<MachineStatus> status;
     std::shared_ptr<MediaMenu> mm;
+    std::thread sdl_thread;
 };
 
 #endif // QT_MAINWINDOW_HPP

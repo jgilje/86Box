@@ -11,11 +11,11 @@ add_library(plat STATIC
     qt_main.cpp
     qt_platform.cpp
     sdl_joystick.cpp
-    cpp11_thread.cpp
 )
 add_library(ui STATIC
     qt_ui.cpp
     qt_cdrom.c
+    qt_sdl.c
 
     qt_mainwindow.cpp
     qt_mainwindow.hpp
@@ -24,15 +24,6 @@ add_library(ui STATIC
     qt_machinestatus.hpp
     qt_mediamenu.cpp
     qt_mediamenu.hpp
-    qt_rendererstack.cpp
-    qt_rendererstack.hpp
-    qt_rendererstack.ui
-    qt_renderercomon.cpp
-    qt_renderercomon.hpp
-    qt_softwarerenderer.cpp
-    qt_softwarerenderer.hpp
-    qt_hardwarerenderer.cpp
-    qt_hardwarerenderer.hpp
 
     qt_settings.cpp
     qt_settings.hpp
@@ -103,9 +94,6 @@ add_library(ui STATIC
 
     ../qt_resources.qrc
 )
-if (APPLE)
-    target_sources(ui PRIVATE macos_event_filter.mm)
-endif()
 
 target_link_libraries(
     plat
@@ -127,28 +115,4 @@ if (UNIX AND NOT APPLE)
     find_package(X11 REQUIRED)
     target_link_libraries(ui PRIVATE X11::X11)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBEVDEV IMPORTED_TARGET libevdev)
-    if (LIBEVDEV_FOUND)
-        target_compile_definitions(ui PRIVATE EVDEV_INPUT)
-        target_link_libraries(ui PUBLIC PkgConfig::LIBEVDEV)
-        target_sources(ui PRIVATE evdev_mouse.cpp)
-    endif()
-
-    find_package(ECM NO_MODULE)
-    if (ECM_FOUND)
-        list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
-        find_package(Wayland COMPONENTS Client)
-        if (Wayland_FOUND)
-            target_link_libraries(ui PRIVATE Wayland::Client)
-            find_package(WaylandScanner REQUIRED)
-            if (WaylandScanner_FOUND)
-                set(WL_SOURCE_VAR)
-                ecm_add_wayland_client_protocol(WL_SOURCE_VAR PROTOCOL ${CMAKE_SOURCE_DIR}/wl_protocols/relative-pointer-unstable-v1.xml BASENAME relative-pointer-unstable-v1)
-                ecm_add_wayland_client_protocol(WL_SOURCE_VAR PROTOCOL ${CMAKE_SOURCE_DIR}/wl_protocols/pointer-constraints-unstable-v1.xml BASENAME pointer-constraints-unstable-v1)
-                target_include_directories(ui PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${Qt5Gui_PRIVATE_INCLUDE_DIRS})
-                target_sources(ui PRIVATE ${WL_SOURCE_VAR} wl_mouse.cpp)
-                target_compile_definitions(ui PRIVATE WAYLAND)
-            endif()
-        endif()
-    endif()
 endif()

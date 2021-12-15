@@ -80,10 +80,9 @@ static SDL_Window	*sdl_win = NULL;
 static SDL_Renderer	*sdl_render = NULL;
 static SDL_Texture	*sdl_tex = NULL;
 static int		sdl_w, sdl_h;
-static int		sdl_fs, sdl_flags = -1;
-static int		cur_w, cur_h;
-static int		cur_ww = 0, cur_wh = 0;
+static int		sdl_flags = -1;
 static volatile int	sdl_enabled = 0;
+static SDL_Rect r_dst;
 static SDL_mutex*	sdl_mutex = NULL;
 
 static const uint16_t sdl_to_xt[0x200] =
@@ -313,10 +312,10 @@ sdl_blit(int x, int y, int w, int h)
     SDL_LockMutex(sdl_mutex);
     SDL_LockTexture(sdl_tex, 0, &pixeldata, &pitch);
 
-    video_copy(pixeldata, &(buffer32->line[y][x]), h * (2048 + 64) * sizeof(uint32_t));
+    video_copy(pixeldata, &(buffer32->line[y][x]), h * 2048 * sizeof(uint32_t));
 
     if (screenshots)
-        video_screenshot((uint32_t *) pixeldata, 0, 0, (2048 + 64));
+        video_screenshot((uint32_t *) pixeldata, 0, 0, 2048);
 
     SDL_UnlockTexture(sdl_tex);
 
@@ -329,7 +328,7 @@ sdl_blit(int x, int y, int w, int h)
     r_src.w = w;
     r_src.h = h;
 
-    ret = SDL_RenderCopy(sdl_render, sdl_tex, &r_src, 0);
+    ret = SDL_RenderCopy(sdl_render, sdl_tex, &r_src, &r_dst);
     if (ret)
         sdl_log("SDL: unable to copy texture to renderer (%s)\n", sdl_GetError());
 
@@ -353,14 +352,14 @@ static void
 sdl_destroy_texture(void)
 {
     if (sdl_tex != NULL) {
-	SDL_DestroyTexture(sdl_tex);
-	sdl_tex = NULL;
+        SDL_DestroyTexture(sdl_tex);
+        sdl_tex = NULL;
     }
 
     /* SDL_DestroyRenderer also automatically destroys all associated textures. */
     if (sdl_render != NULL) {
-	SDL_DestroyRenderer(sdl_render);
-	sdl_render = NULL;
+        SDL_DestroyRenderer(sdl_render);
+        sdl_render = NULL;
     }
 }
 
@@ -369,24 +368,24 @@ void
 sdl_close(void)
 {
     if (sdl_mutex != NULL)
-	SDL_LockMutex(sdl_mutex);
+        SDL_LockMutex(sdl_mutex);
 
     /* Unregister our renderer! */
     video_setblit(NULL);
 
     if (sdl_enabled)
-	sdl_enabled = 0;
+        sdl_enabled = 0;
 
     if (sdl_mutex != NULL) {
-	SDL_DestroyMutex(sdl_mutex);
-	sdl_mutex = NULL;
+        SDL_DestroyMutex(sdl_mutex);
+        sdl_mutex = NULL;
     }
 
     sdl_destroy_texture();
     sdl_destroy_window();
 
     /* Quit. */
-    SDL_Quit();
+    // SDL_Quit();
     sdl_flags = -1;
 }
 
@@ -414,7 +413,7 @@ sdl_init_texture(void)
     }
 
     sdl_tex = SDL_CreateTexture(sdl_render, SDL_PIXELFORMAT_ARGB8888,
-				SDL_TEXTUREACCESS_STREAMING, (2048 + 64), (2048 + 64));
+                SDL_TEXTUREACCESS_STREAMING, 2048, 2048);
 
     if (sdl_render == NULL) {
         sdl_log("SDL: unable to SDL_CreateRenderer (%s)\n", SDL_GetError());
@@ -437,14 +436,16 @@ sdl_reinit_texture(void)
 
 
 void sdl_set_fs(int fs) {
+    SDL_LockMutex(sdl_mutex);
     SDL_SetWindowFullscreen(sdl_win, fs ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
     SDL_SetRelativeMouseMode((SDL_bool)mouse_capture);
-
-    sdl_fs = fs;
+    SDL_UnlockMutex(sdl_mutex);
 
     if (fs) {
+        sdl_resize(sdl_w, sdl_h);
         sdl_flags |= RENDERER_FULL_SCREEN;
     } else {
+        sdl_resize(scrnsz_x, scrnsz_y);
         sdl_flags &= ~RENDERER_FULL_SCREEN;
     }
 
@@ -453,9 +454,8 @@ void sdl_set_fs(int fs) {
 
 
 static int
-sdl_init_common(void* win, int flags)
+sdl_init_common(int flags)
 {
-    wchar_t temp[128];
     SDL_version ver;
 
     sdl_log("SDL: init (fs=%d)\n", 0);
@@ -487,7 +487,7 @@ sdl_init_common(void* win, int flags)
     sdl_h = dm.h;
     sdl_flags = flags;
 
-    sdl_win = SDL_CreateWindow("86Box renderer", 640, 480, 100, 100, sdl_flags);
+    sdl_win = SDL_CreateWindow("86Box Renderer", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 320, 240, sdl_flags);
     if (sdl_win == NULL) {
         sdl_log("SDL: unable to CreateWindowFrom (%s)\n", SDL_GetError());
     }
@@ -508,23 +508,23 @@ sdl_init_common(void* win, int flags)
 
 
 int
-sdl_inits(void* win)
+sdl_inits()
 {
-    return sdl_init_common(win, 0);
+    return sdl_init_common(0);
 }
 
 
 int
-sdl_inith(void* win)
+sdl_inith()
 {
-    return sdl_init_common(win, RENDERER_HARDWARE);
+    return sdl_init_common(RENDERER_HARDWARE);
 }
 
 
 int
-sdl_initho(void* win)
+sdl_initho()
 {
-    return sdl_init_common(win, RENDERER_HARDWARE | RENDERER_OPENGL);
+    return sdl_init_common(RENDERER_HARDWARE | RENDERER_OPENGL);
 }
 
 
@@ -538,81 +538,57 @@ sdl_pause(void)
 void
 sdl_resize(int w, int h)
 {
-    int ww = 0, wh = 0;
-
-    if (video_fullscreen & 2)
-	return;
-
-    if ((w == cur_w) && (h == cur_h))
-	return;
-
     SDL_LockMutex(sdl_mutex);
-
-    ww = w;
-    wh = h;
-
-    if (sdl_fs) {
-//        sdl_stretch(&ww, &wh, &wx, &wy);
-//        MoveWindow(hwndRender, wx, wy, ww, wh, TRUE);
+    if (w == 0) {
+        w = sdl_w;
+    }
+    if (h == 0) {
+        h = sdl_h;
     }
 
-    cur_w = w;
-    cur_h = h;
+    if (video_fullscreen == 0) {
+        r_dst.x = 0;
+        r_dst.y = 0;
+        r_dst.w = w;
+        r_dst.h = h;
+    } else {
+        int ww = scrnsz_x, wh = scrnsz_y, wx = 0, wy = 0;
+        sdl_stretch(&ww, &wh, &wx, &wy);
+        r_dst.x = wx;
+        r_dst.y = wy;
+        r_dst.w = ww;
+        r_dst.h = wh;
+    }
 
-    cur_ww = ww;
-    cur_wh = wh;
-
-    SDL_SetWindowSize(sdl_win, cur_ww, cur_wh);
+    SDL_SetWindowSize(sdl_win, w, h);
     sdl_reinit_texture();
 
     SDL_UnlockMutex(sdl_mutex);
 }
 
-
-void
-sdl_enable(int enable)
-{
-    if (sdl_flags == -1)
-	return;
-
-    SDL_LockMutex(sdl_mutex);
-    sdl_enabled = !!enable;
-
-    if (enable == 1) {
-        SDL_SetWindowSize(sdl_win, cur_ww, cur_wh);
-        sdl_reinit_texture();
-    }
-
-    SDL_UnlockMutex(sdl_mutex);
-}
-
-
 void
 sdl_reload(void)
 {
     if (sdl_flags & RENDERER_HARDWARE) {
-	SDL_LockMutex(sdl_mutex);
+        SDL_LockMutex(sdl_mutex);
 
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, video_filter_method ? "1" : "0");
-	sdl_reinit_texture();
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, video_filter_method ? "1" : "0");
+        sdl_reinit_texture();
 
-	SDL_UnlockMutex(sdl_mutex);
+        SDL_UnlockMutex(sdl_mutex);
     }
 }
 
 static int mouse_inside = 0;
-enum sdl_main_status sdl_main() {
-    int ret = SdlMainOk;
-    SDL_Rect r_src;
+void sdl_main() {
     SDL_Event event;
 
-    while (SDL_PollEvent(&event))
+    while (SDL_WaitEvent(&event))
     {
         switch(event.type)
         {
         case SDL_QUIT:
-            ret = SdlMainQuit;
-            break;
+            return;
         case SDL_MOUSEWHEEL:
         {
             if (mouse_capture || video_fullscreen)
@@ -684,14 +660,19 @@ enum sdl_main_status sdl_main() {
         case SDL_KEYDOWN:
         case SDL_KEYUP:
         {
-            uint16_t xtkey = 0;
-            switch(event.key.keysym.scancode)
-            {
-            default:
-                xtkey = sdl_to_xt[event.key.keysym.scancode];
-                break;
-            }
+            uint16_t xtkey = sdl_to_xt[event.key.keysym.scancode];
             keyboard_input(event.key.state == SDL_PRESSED, xtkey);
+
+            if (mouse_capture && keyboard_ismsexit()) {
+                plat_mouse_capture(0);
+            }
+
+            if ((video_fullscreen == 0) && ((event.key.keysym.mod & KMOD_LCTRL) && (event.key.keysym.mod & KMOD_LALT) && (event.key.keysym.scancode == SDL_SCANCODE_PAGEUP))) {
+                plat_setfullscreen(1);
+            }
+            if (video_fullscreen && keyboard_isfsexit()) {
+                plat_setfullscreen(0);
+            }
         }
         break;
         case SDL_WINDOWEVENT:
@@ -708,15 +689,6 @@ enum sdl_main_status sdl_main() {
         }
         }
     }
-
-    if (mouse_capture && keyboard_ismsexit()) {
-        plat_mouse_capture(0);
-    }
-    if (video_fullscreen && keyboard_isfsexit()) {
-        plat_setfullscreen(0);
-    }
-
-    return ret;
 }
 
 void sdl_mouse_capture(int on) {
@@ -729,4 +701,11 @@ void sdl_mouse_poll() {
     mouse_z = mousedata.deltaz;
     mousedata.deltax = mousedata.deltay = mousedata.deltaz = 0;
     mouse_buttons = mousedata.mousebuttons;
+}
+
+void sdl_quit()
+{
+    SDL_Event quit;
+    quit.type = SDL_QUIT;
+    SDL_PushEvent(&quit);
 }

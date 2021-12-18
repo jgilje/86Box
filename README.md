@@ -1,23 +1,9 @@
 86Box
 =====
-**This Branch:** I've added initial Qt support to 86Box because I wanted to
-have the configuration dialogs available on Linux, similar to what was
-available on PCem.
 
-This is work-in-progress!
+The Qt branch which _may_ be mainlined into 86Box continues at https://github.com/ts-korhonen/86Box/tree/qt
 
-Implemented
------------
-* The settings dialog
-* Full screen switching
-* Keyboard and mouse 
-* Status updates (activity lights)
-
-TODO
-----
-* Emulation state and updates (titlebar in windows)
-* Display output options (like forced 4:3)
-* Entering full screen from within the emulated screen
+This branch reverts the Qt renderer to a simple SDL renderer, for personal preferences.
 
 Original Readme
 ===============

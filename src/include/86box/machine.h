@@ -85,8 +85,8 @@
 #define MACHINE_SCSI_DUAL	0x18000000	/* sys has int dual SCSI - mark as both pri and sec SCSI */
 #define MACHINE_CARTRIDGE	0x20000000	/* sys has two cartridge bays */
 
-#define IS_ARCH(m, a)		(machines[m].flags & (a)) ? 1 : 0;
-#define IS_AT(m)		((machines[m].flags & 0x00000FC8) && !(machines[m].flags & MACHINE_PC98)) ? 1 : 0;
+#define IS_ARCH(m, a)		((machines[m].flags & (a)) ? 1 : 0)
+#define IS_AT(m)		(((machines[m].flags & 0x00000FC8) && !(machines[m].flags & MACHINE_PC98)) ? 1 : 0)
 
 #define CPU_BLOCK(...)		(const uint8_t[]) {__VA_ARGS__, 0}
 #define MACHINE_MULTIPLIER_FIXED -1, -1
@@ -182,7 +182,6 @@ extern const machine_type_t	machine_types[];
 extern const machine_t		machines[];
 extern int			bios_only;
 extern int			machine;
-extern int			AT, PCI;
 
 
 /* Core functions. */
@@ -359,7 +358,7 @@ extern int	machine_at_greenb_init(const machine_t *);
 extern int	machine_at_r418_init(const machine_t *);
 extern int	machine_at_ls486e_init(const machine_t *);
 extern int	machine_at_4dps_init(const machine_t *);
-extern int	machine_at_4sa2_init(const machine_t *);
+extern int	machine_at_4saw2_init(const machine_t *);
 extern int	machine_at_m4li_init(const machine_t *);
 extern int	machine_at_alfredo_init(const machine_t *);
 extern int	machine_at_ninja_init(const machine_t *);

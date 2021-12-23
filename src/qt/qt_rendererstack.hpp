@@ -5,6 +5,9 @@
 #include <QKeyEvent>
 #include <QEvent>
 #include <memory>
+#include <vector>
+#include <atomic>
+#include <array>
 
 namespace Ui {
 class RendererStack;
@@ -40,7 +43,7 @@ public:
     void switchRenderer(Renderer renderer);
 
 signals:
-    void blitToRenderer(const QImage& img, int, int, int, int);
+    void blitToRenderer(const std::unique_ptr<uint8_t>* img, int, int, int, int, std::atomic_flag* in_use);
 
 public slots:
     void blit(int x, int y, int w, int h);
@@ -57,13 +60,13 @@ private:
 
     int x, y, w, h, sx, sy, sw, sh;
 
-    // always have a qimage available for writing, which is _probably_ unused
-    // worst case - it will just get reallocated because it's refcounter is > 1
-    // when calling bits();
     int currentBuf = 0;
-    QVector<QImage> imagebufs;
+    std::array<std::unique_ptr<uint8_t>, 2> imagebufs;
 
     std::unique_ptr<QWidget> current;
+
+    /* atomic flag for each buffer to not overload the renderer */
+    std::vector<std::atomic_flag> buffers_in_use;
 };
 
 #endif // QT_RENDERERCONTAINER_HPP

@@ -12,6 +12,7 @@ add_library(plat STATIC
     qt_platform.cpp
     sdl_joystick.cpp
 )
+
 add_library(ui STATIC
     qt_ui.cpp
     qt_cdrom.c
@@ -92,8 +93,18 @@ add_library(ui STATIC
     qt_soundgain.cpp
     qt_soundgain.ui
 
+    qt_styleoverride.cpp
+    qt_styleoverride.hpp
+
     ../qt_resources.qrc
 )
+if(WIN32 AND NOT MINGW)
+    target_sources(plat PRIVATE ../win/win_opendir.c)
+endif()
+
+if (WIN32)
+    target_sources(ui PRIVATE qt_winrawinputfilter.hpp qt_winrawinputfilter.cpp)
+endif()
 
 target_link_libraries(
     plat
@@ -110,6 +121,11 @@ target_link_libraries(
     Qt5::Gui
     Threads::Threads
 )
+
+# needed for static builds
+if (WIN32)
+    qt_import_plugins(plat INCLUDE Qt5::QWindowsIntegrationPlugin Qt5::QICOPlugin QWindowsVistaStylePlugin)
+endif()
 
 if (UNIX AND NOT APPLE)
     find_package(X11 REQUIRED)

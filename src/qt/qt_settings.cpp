@@ -13,7 +13,14 @@
 #include "qt_settingsotherremovable.hpp"
 #include "qt_settingsotherperipherals.hpp"
 
+extern "C"
+{
+#include <86box/86box.h>
+}
+
 #include <QDebug>
+#include <QMessageBox>
+#include <QCheckBox>
 
 class SettingsModel : public QAbstractListModel {
 public:
@@ -105,6 +112,7 @@ Settings::Settings(QWidget *parent) :
     connect(machine, &SettingsMachine::currentMachineChanged, sound, &SettingsSound::onCurrentMachineChanged);
     connect(machine, &SettingsMachine::currentMachineChanged, network, &SettingsNetwork::onCurrentMachineChanged);
     connect(machine, &SettingsMachine::currentMachineChanged, storageControllers, &SettingsStorageControllers::onCurrentMachineChanged);
+    connect(machine, &SettingsMachine::currentMachineChanged, otherPeripherals, &SettingsOtherPeripherals::onCurrentMachineChanged);
 
     connect(ui->listView->selectionModel(), &QItemSelectionModel::currentChanged, this, [this](const QModelIndex &current, const QModelIndex &previous) {
         ui->stackedWidget->setCurrentIndex(current.row());
@@ -128,4 +136,24 @@ void Settings::save() {
     floppyCdrom->save();
     otherRemovable->save();
     otherPeripherals->save();
+}
+
+void Settings::accept()
+{
+    if (confirm_save)
+    {
+        QMessageBox questionbox(QMessageBox::Icon::Question, "86Box", "Do you want to save the settings?\n\nThis will hard reset the emulated machine.", QMessageBox::Save | QMessageBox::Cancel, this);
+        QCheckBox *chkbox = new QCheckBox("Do not ask me again");
+        questionbox.setCheckBox(chkbox);
+        chkbox->setChecked(!confirm_save);
+        QObject::connect(chkbox, &QCheckBox::stateChanged, [](int state) {
+            confirm_save = (state == Qt::CheckState::Unchecked);
+        });
+        questionbox.exec();
+        if (questionbox.result() == QMessageBox::Cancel) {
+            confirm_save = true;
+            return;
+        }
+    }
+    QDialog::accept();
 }

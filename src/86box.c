@@ -28,6 +28,8 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#include <stdatomic.h>
+
 #ifndef _WIN32
 #include <pwd.h>
 #endif
@@ -96,7 +98,7 @@
 /* Stuff that used to be globally declared in plat.h but is now extern there
    and declared here instead. */
 int		dopause;		/* system is paused */
-int		doresize;			/* screen resize requested */
+atomic_flag		doresize;			/* screen resize requested */
 volatile int		is_quit;				/* system exit requested */
 uint64_t	timer_freq;
 char        emu_version[200];		/* version ID string */
@@ -1040,7 +1042,7 @@ pc_reset_hard_init(void)
 	/* Reset the CPU module. */
 	resetx86();
 	dma_reset();
-	pic_reset();
+	pci_pic_reset();
 	cpu_cache_int_enabled = cpu_cache_ext_enabled = 0;
 
 	atfullspeed = 0;
@@ -1285,9 +1287,7 @@ set_screen_size(int x, int y)
 
     /* If the resolution has changed, let the main thread handle it. */
     if ((owsx != scrnsz_x) || (owsy != scrnsz_y))
-	doresize = 1;
-    else
-	doresize = 0;
+		atomic_flag_clear(&doresize);
 }
 
 

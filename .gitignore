@@ -5,7 +5,6 @@
 CMakeFiles
 Makefile
 *.a
-*.cmake
 /src/*.exe
 /src/86Box
 /src/include/86box/version.h
@@ -22,7 +21,6 @@ Makefile
 /src/*.log
 /src/*.dmp
 /src/nvr/
-/src/printer/
 /src/roms/
 /src/screenshots/
 
@@ -38,3 +36,6 @@ Makefile
 /.vs
 /.vscode
 src/win/RCa04980
+
+# Qt Creator
+CMakeLists.txt.user

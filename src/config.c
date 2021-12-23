@@ -644,6 +644,8 @@ load_machine(void)
 		machine = machine_get_machine_from_internal_name("s1857");
 	else if (! strcmp(p, "63a"))
 		machine = machine_get_machine_from_internal_name("63a1");
+	else if (! strcmp(p, "4sa2"))
+		machine = machine_get_machine_from_internal_name("4saw2");
 	else if (! strcmp(p, "award386dx")) /* ...merged machines... */
 		machine = machine_get_machine_from_internal_name("award495");
 	else if (! strcmp(p, "ami386dx"))
@@ -656,6 +658,8 @@ load_machine(void)
 		machine = machine_get_machine_from_internal_name("ami495");
 	else if (! strcmp(p, "mr486"))
 		machine = machine_get_machine_from_internal_name("mr495");
+	else if (! strcmp(p, "ibmps1_2121_isa"))
+		machine = machine_get_machine_from_internal_name("ibmps1_2121");
 	else if (! strcmp(p, "fw6400gx_s1"))
 		machine = machine_get_machine_from_internal_name("fw6400gx");
 	else if (! strcmp(p, "p54vl"))
@@ -858,10 +862,6 @@ load_machine(void)
     /* Remove this after a while.. */
     config_delete_var(cat, "nvr_path");
     config_delete_var(cat, "enable_sync");
-
-    /* Set up the architecture flags. */
-    AT = IS_AT(machine);
-    PCI = IS_ARCH(machine, MACHINE_BUS_PCI);
 }
 
 
@@ -914,15 +914,30 @@ load_input_devices(void)
 
     p = config_get_string(cat, "joystick_type", NULL);
     if (p != NULL) {
+	if (!strcmp(p, "standard_2button"))
+		joystick_type = joystick_get_from_internal_name("2axis_2button");
+	else if (!strcmp(p, "standard_4button"))
+		joystick_type = joystick_get_from_internal_name("2axis_4button");
+	else if (!strcmp(p, "standard_6button"))
+		joystick_type = joystick_get_from_internal_name("2axis_6button");
+	else if (!strcmp(p, "standard_8button"))
+		joystick_type = joystick_get_from_internal_name("2axis_8button");
+
 	joystick_type = joystick_get_from_internal_name(p);
 	if (!joystick_type) {
 		/* Try to read an integer for backwards compatibility with old configs */
 		c = config_get_int(cat, "joystick_type", 8);
-		if ((c >= 0) && (c < 8))
-			/* "None" was type 8 instead of 0 previously, shift the number accordingly */
-			joystick_type = c + 1;
-		else
-			joystick_type = 0;
+		switch (c) {
+			case 0: case 1: case 2: case 3: /* 2-axis joysticks */
+				joystick_type = c + 1;
+				break;
+			case 4: case 5: case 6: case 7: /* other joysticks */
+				joystick_type = c + 3;
+				break;
+			default: /* "None" (8) or invalid value */
+				joystick_type = 0;
+				break;
+		}
 	}
     } else
 	joystick_type = 0;
@@ -1149,7 +1164,8 @@ load_storage_controllers(void)
     ide_ter_enabled = !!config_get_int(cat, "ide_ter", 0);
     ide_qua_enabled = !!config_get_int(cat, "ide_qua", 0);
 
-    cassette_enable = !!config_get_int(cat, "cassette_enabled", AT ? 0 : 1);
+    /* TODO: Re-enable by default after we actually have a proper machine flag for this. */
+    cassette_enable = !!config_get_int(cat, "cassette_enabled", 0);
     p = config_get_string(cat, "cassette_file", "");
     if (strlen(p) > 511)
 	fatal("load_storage_controllers(): strlen(p) > 511\n");
@@ -2024,10 +2040,6 @@ config_load(void)
 	machine = machine_get_machine_from_internal_name("ibmpc");
 	dpi_scale = 1;
 
-	/* Set up the architecture flags. */
-	AT = IS_AT(machine);
-	PCI = IS_ARCH(machine, MACHINE_BUS_PCI);
-
 	fpu_type = fpu_get_type(cpu_f, cpu, "none");
 	gfxcard = video_get_video_from_internal_name("cga");
 	vid_api = plat_vidapi("default");
@@ -2059,7 +2071,8 @@ config_load(void)
 	for (i = 0; i < ISAMEM_MAX; i++)
 		isamem_type[i] = 0;
 
-	cassette_enable = AT ? 0 : 1;
+        /* TODO: Re-enable by default when we have a proper machine flag for this. */
+	cassette_enable = 0;
 	memset(cassette_fname, 0x00, sizeof(cassette_fname));
 	memcpy(cassette_mode, "load", strlen("load") + 1);
 	cassette_pos = 0;

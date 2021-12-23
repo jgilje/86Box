@@ -24,9 +24,13 @@ RendererStack::RendererStack(QWidget *parent) :
     ui(new Ui::RendererStack)
 {
     ui->setupUi(this);
-    imagebufs = QVector<QImage>(2);
-    imagebufs[0] = QImage{QSize(2048, 2048), QImage::Format_RGB32};
-    imagebufs[1] = QImage{QSize(2048, 2048), QImage::Format_RGB32};
+    imagebufs[0].reset(new uint8_t[2048 * 2048 * 4]);
+    imagebufs[1].reset(new uint8_t[2048 * 2048 * 4]);
+
+    buffers_in_use = std::vector<std::atomic_flag>(2);
+    buffers_in_use[0].clear();
+    buffers_in_use[1].clear();
+
 #ifdef WAYLAND
     if (QApplication::platformName().contains("wayland")) {
         wl_init();
@@ -172,36 +176,43 @@ void RendererStack::switchRenderer(Renderer renderer) {
     case Renderer::Software:
     {
         auto sw = new SoftwareRenderer(this);
-        connect(this, &RendererStack::blitToRenderer, sw, &SoftwareRenderer::onBlit);
+        connect(this, &RendererStack::blitToRenderer, sw, &SoftwareRenderer::onBlit, Qt::QueuedConnection);
         current.reset(sw);
     }
         break;
     case Renderer::OpenGL:
     {
+        this->createWinId();
         auto hw = new HardwareRenderer(this);
-        connect(this, &RendererStack::blitToRenderer, hw, &HardwareRenderer::onBlit);
+        connect(this, &RendererStack::blitToRenderer, hw, &HardwareRenderer::onBlit, Qt::QueuedConnection);
         hw->setRenderType(HardwareRenderer::RenderType::OpenGL);
-        current.reset(hw);
+        current.reset(this->createWindowContainer(hw, this));
         break;
     }
     case Renderer::OpenGLES:
     {
+        this->createWinId();
         auto hw = new HardwareRenderer(this);
-        connect(this, &RendererStack::blitToRenderer, hw, &HardwareRenderer::onBlit);
+        connect(this, &RendererStack::blitToRenderer, hw, &HardwareRenderer::onBlit, Qt::QueuedConnection);
         hw->setRenderType(HardwareRenderer::RenderType::OpenGLES);
-        current.reset(hw);
+        current.reset(this->createWindowContainer(hw, this));
         break;
     }
     }
     current->setFocusPolicy(Qt::NoFocus);
+    current->setFocusProxy(this);
     addWidget(current.get());
+
+    for (auto& in_use : buffers_in_use)
+        in_use.clear();
+
     endblit();
 }
 
 // called from blitter thread
 void RendererStack::blit(int x, int y, int w, int h)
 {
-    if ((w <= 0) || (h <= 0) || (w > 2048) || (h > 2048) || (buffer32 == NULL))
+    if ((w <= 0) || (h <= 0) || (w > 2048) || (h > 2048) || (buffer32 == NULL) || buffers_in_use[currentBuf].test_and_set())
     {
         video_blit_complete();
         return;
@@ -210,7 +221,7 @@ void RendererStack::blit(int x, int y, int w, int h)
     sy = y;
     sw = this->w = w;
     sh = this->h = h;
-    auto imagebits = imagebufs[currentBuf].bits();
+    auto imagebits = imagebufs[currentBuf].get();
     video_copy(imagebits + y * (2048 * 4) + x * 4, &(buffer32->line[y][x]), h * 2048 * sizeof(uint32_t));
 
     if (screenshots)
@@ -218,6 +229,6 @@ void RendererStack::blit(int x, int y, int w, int h)
         video_screenshot((uint32_t *)imagebits, 0, 0, 2048);
     }
     video_blit_complete();
-    blitToRenderer(imagebufs[currentBuf], sx, sy, sw, sh);
+    blitToRenderer(&imagebufs[currentBuf], sx, sy, sw, sh, &buffers_in_use[currentBuf]);
     currentBuf = (currentBuf + 1) % 2;
 }

@@ -15,10 +15,9 @@ RendererCommon::RendererCommon() = default;
 void RendererCommon::onPaint(QPaintDevice* device) {
     QPainter painter(device);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, video_filter_method > 0 ? true : false);
+    painter.fillRect(0, 0, device->width(), device->height(), QColorConstants::Black);
+    painter.setCompositionMode(QPainter::CompositionMode_Plus);
     painter.drawImage(destination, image, source);
-    // "release" image, reducing it's refcount, so renderstack::blit()
-    // won't have to reallocate
-    image = QImage();
 }
 
 static void integer_scale(double *d, double *g) {
